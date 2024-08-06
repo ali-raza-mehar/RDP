@@ -7,39 +7,47 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Download ngrok
+    - name: Download
       run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-
-    - name: Extract ngrok
-      run: Expand-Archive ngrok.zip -DestinationPath ngrok
-
-    - name: Authenticate ngrok
+    - name: Extract
+      run: Expand-Archive ngrok.zip
+    - name: Auth
       run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
       env:
         NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-
-    - name: Enable Remote Desktop
-      run: |
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
-
-    - name: Set Local User Password
-      run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
-
-    - name: Create ngrok Tunnel
+    - name: Enable TS
+      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
+    - name: Create Tunnel
       run: |
         $ngrokPath = ".\ngrok\ngrok.exe"
+        $ngrokProcessName = "ngrok"
         $port = 3389
+
+        # Function to check if ngrok is running
+        function Is-NgrokRunning {
+            return Get-Process -Name $ngrokProcessName -ErrorAction SilentlyContinue
+        }
 
         # Function to start ngrok
         function Start-Ngrok {
             Start-Process -NoNewWindow -FilePath $ngrokPath -ArgumentList "tcp $port"
-            Write-Host "ngrok tunnel started on port $port."
         }
 
-        # Start ngrok
-        Start-Ngrok
+        # Function to stop ngrok
+        function Stop-Ngrok {
+            Stop-Process -Name $ngrokProcessName -Force -ErrorAction SilentlyContinue
+        }
+
+        # Start ngrok if not running
+        if (-not (Is-NgrokRunning)) {
+            Start-Ngrok
+            Write-Host "ngrok tunnel started on port $port."
+        } else {
+            Write-Host "ngrok tunnel is already running."
+        }
 
         # Schedule the task to restart ngrok every hour
         $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-Command `"$ngrokPath tcp $port`""
